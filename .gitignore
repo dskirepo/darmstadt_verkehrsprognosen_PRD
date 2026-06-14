@@ -219,7 +219,7 @@ __marimo__/
 
 # Daten & Datenbanken
 *.csv
-*.db
+#*.db
 *.sqlite
 
 # Temporäre Daten und Downloads
