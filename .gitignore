@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Daten & Datenbanken
+*.csv
+*.db
+*.sqlite
+
+# Temporäre Daten und Downloads
+cache/
+traffic_xgb_models/
+__pycache__/
