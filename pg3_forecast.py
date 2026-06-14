@@ -4,15 +4,7 @@ import pandas as pd
 import sqlite3
 import pydeck as pdk
 from streamlit_theme import st_theme
-import locale
 
-# Set the locale to German (for date string)
-# Linux/macOS: 'de_DE.UTF-8'
-# Windows: 'de_DE' or 'German'
-try:
-    locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
-except locale.Error:
-    locale.setlocale(locale.LC_TIME, 'de_DE')
 
 # ─────────────────────────────────────────────────────────────────────────────
 # adjust to light & dark mode
