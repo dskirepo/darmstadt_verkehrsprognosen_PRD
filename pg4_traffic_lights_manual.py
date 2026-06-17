@@ -341,6 +341,7 @@ with col_map:
             pdk.Layer(
                 "ScatterplotLayer",
                 id="intersections", 
+                data=scatter_data,
                 pickable=True,
                 auto_highlight=False,
                 get_position=["lon", "lat"],

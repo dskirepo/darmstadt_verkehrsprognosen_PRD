@@ -9,7 +9,7 @@ page_1 = st.Page("pg1_hist_data.py", title="Historische Verkehrsdaten")
 page_2 = st.Page("pg2_live_data.py", title="Live-Daten")
 page_3 = st.Page("pg3_forecast.py", title="Verkehrsprognose")
 page_4 = st.Page("pg4_traffic_lights_manual.py", title="Ampelschaltungssoftware")
-page_5 = st.Page("pg5_traffic_lights_AI.py", title="KI-unterstützte Ampelschaltung")
+page_5 = st.Page("pg5_traffic_lights_AI.py", title="KI-gestützte Ampelschaltung")
 
 # Set up navigation
 pg = st.navigation(pages=[main_page, page_1, page_2, page_3, page_4, page_5], position="sidebar")

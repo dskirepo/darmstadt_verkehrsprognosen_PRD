@@ -100,7 +100,7 @@ st.markdown(
 @st.cache_data
 def load_traffic_data() -> pd.DataFrame:
     conn = sqlite3.connect('traffic_forecasts.db') # forecast data
-    df = pd.read_sql_query("SELECT * FROM verkehr_darmstadt_forecast", conn)
+    df = pd.read_sql_query("SELECT * FROM traffic_darmstadt", conn)
     conn.close()
     df["Timestamp"] = pd.to_datetime(df["Timestamp"])
     return df

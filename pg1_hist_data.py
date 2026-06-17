@@ -97,8 +97,8 @@ st.markdown(
 
 @st.cache_data
 def load_traffic_data() -> pd.DataFrame:
-    conn = sqlite3.connect("verkehrsdaten_darmstadt_mitte.db") # data from simul_data.py
-    df = pd.read_sql("SELECT * FROM verkehr_darmstadt", conn)
+    conn = sqlite3.connect("traffic_data_darmstadt_mitte.db") # data from simul_data.py
+    df = pd.read_sql("SELECT * FROM traffic_darmstadt", conn)
     conn.close()
     df["Timestamp"] = pd.to_datetime(df["Timestamp"])
     return df

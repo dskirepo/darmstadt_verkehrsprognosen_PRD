@@ -1053,6 +1053,14 @@ def static_segment_frame(history: pd.DataFrame) -> pd.DataFrame:
         "Lanes",
         "RoadImportance",
         "BaseSpeed_kmh",
+        "EffectiveCapacity",
+        "CapacityRatio",
+        "HotspotPressure",
+        "RoutePressure",
+        "SpilloverPressure",
+        "IncidentActive",
+        "IncidentCapacityFactor",
+        "edge_idx",
     ]
     available = [c for c in static_cols if c in history.columns]
     return (
@@ -1248,12 +1256,20 @@ def forecast_recursive(
         "PredictedStauLevel",
         "StorageCapacity",
         "FlowCapacity",
+        "EffectiveCapacity",
+        "CapacityRatio",
         "Strassenname",
         "Highway",
         "Length_Meter",
         "Lanes",
         "RoadImportance",
         "BaseSpeed_kmh",
+        "HotspotPressure",
+        "RoutePressure",
+        "SpilloverPressure",
+        "IncidentActive",
+        "IncidentCapacityFactor",
+        "edge_idx",
         "PredictedCongestion",
         "PredictedCongestionPercent",
         "PredictedCongested",
@@ -1369,7 +1385,7 @@ def make_input_schema_forecast(forecasts: pd.DataFrame, input_schema: str) -> pd
     Anzahl_Autos, Durchschnittsgeschwindigkeit_kmh, Stau_Level
     """
     if forecasts.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=SIMULATION_OUTPUT_COLS)
 
     frame = forecasts.copy()
     ts = pd.to_datetime(frame["Timestamp"])
@@ -1549,9 +1565,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train an XGBoost traffic forecast model from a SQLite traffic DB.")
     parser.add_argument("--db", default="traffic_data_darmstadt_mitte.db", help="Input SQLite database path.")
     parser.add_argument("--table", default=None, help="History table name. Defaults to auto-detect.")
-    parser.add_argument("--output-db", default="traffic_forecasts.db", help="SQLite DB to write forecast tables into.")
+    parser.add_argument("--output-db", default="traffic_forecasts.db", help="SQLite DB to write the forecast table into.")
     parser.add_argument("--output-table", default="traffic_darmstadt", help="Single output table name. Defaults to the simulator table name.")
-    parser.add_argument("--model-dir", default="traffic_xgb_models", help="Directory for trained model files.")
+    parser.add_argument("--model-dir", default="traffic_xgb_models", help="Directory for trained model files, used only with --save-models.")
     parser.add_argument("--save-models", action="store_true", help="Optionally save trained model files. Disabled by default so only the DB is created.")
 
     parser.add_argument("--forecast-start", default=None, help='First desired forecast timestamp, e.g. "2026-05-01 01:00".')
