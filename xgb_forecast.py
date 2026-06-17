@@ -30,6 +30,9 @@ except ImportError as exc:  # pragma: no cover
         "xgboost is required. Install it with: pip install xgboost scikit-learn pandas joblib"
     ) from exc
 
+# ─────────────────────────────────────────────────────────────────────────────
+# global constants
+# ─────────────────────────────────────────────────────────────────────────────
 
 DEFAULT_LAGS = (1, 2, 3, 6, 12, 24, 48, 72, 168)
 DEFAULT_ROLLING_WINDOWS = (3, 6, 12, 24, 72, 168)
@@ -42,7 +45,6 @@ STATIC_NUMERIC_COLS = [
     "RoadImportance",
     "BaseSpeed_kmh",
 ]
-TARGET_COL = "Load"
 SPEED_TARGET_COL = "SpeedKmh"
 STAU_TARGET_COL = "StauLevel"
 
@@ -89,6 +91,47 @@ OPTIONAL_RICH_NUMERIC_COLS = [
     "IncidentCapacityFactor",
 ]
 
+# same output schema as simulated data
+SIMULATION_OUTPUT_COLS = [
+    "Timestamp",
+    "Date",
+    "Time",
+    "Minute",
+    "Wochentag",
+    "Day",
+    "Hour",
+    "Tageszeit_Kategorie",
+    "IsNonWorkingDay",
+    "RushHourActive",
+    "Segment",
+    "u",
+    "v",
+    "key",
+    "FromNode",
+    "ToNode",
+    "Strassenname",
+    "Highway",
+    "Length_Meter",
+    "Lanes",
+    "RoadImportance",
+    "Anzahl_Autos",
+    "Load",
+    "BaseSpeed_kmh",
+    "Durchschnittsgeschwindigkeit_kmh",
+    "SpeedKmh",
+    "FlowCapacity",
+    "EffectiveCapacity",
+    "CapacityRatio",
+    "CongestionPercent",
+    "Stau_Level",
+    "Congestion",
+    "HotspotPressure",
+    "RoutePressure",
+    "SpilloverPressure",
+    "IncidentActive",
+    "IncidentCapacityFactor",
+    "edge_idx",
+]
 
 @dataclass
 class TrainedModels:
@@ -127,8 +170,8 @@ def detect_table_and_schema(
 ) -> tuple[str, str]:
     """
     Return (table_name, schema_name), where schema_name is one of:
-    - "verkehr_darmstadt_hotspot" for the new richer hotspot/network generator
-    - "verkehr_darmstadt" for the original generated German schema
+    - "traffic_darmstadt_hotspot" for the new richer hotspot/network generator
+    - "traffic_darmstadt" for the original generated German schema
     - "segment_history" for canonical/map-compatible history
     """
     tables = list_tables(conn)
@@ -138,8 +181,8 @@ def detect_table_and_schema(
     def classify(cols: set[str]) -> Optional[str]:
         if GERMAN_REQUIRED_COLS.issubset(cols):
             if HOTSPOT_SCHEMA_MARKER_COLS.intersection(cols):
-                return "verkehr_darmstadt_hotspot"
-            return "verkehr_darmstadt"
+                return "traffic_darmstadt_hotspot"
+            return "traffic_darmstadt"
         if CANONICAL_REQUIRED_COLS.issubset(cols):
             return "segment_history"
         return None
@@ -160,11 +203,11 @@ def detect_table_and_schema(
     for table in tables:
         cols = table_columns(conn, table)
         if GERMAN_REQUIRED_COLS.issubset(cols) and HOTSPOT_SCHEMA_MARKER_COLS.intersection(cols):
-            return table, "verkehr_darmstadt_hotspot"
+            return table, "traffic_darmstadt_hotspot"
 
     for table in tables:
         if GERMAN_REQUIRED_COLS.issubset(table_columns(conn, table)):
-            return table, "verkehr_darmstadt"
+            return table, "traffic_darmstadt"
 
     for table in tables:
         if CANONICAL_REQUIRED_COLS.issubset(table_columns(conn, table)):
@@ -296,7 +339,7 @@ def normalize_german_schema(
     raw: pd.DataFrame,
     capacity_quantile: float,
     capacity_margin: float,
-    schema_name: str = "verkehr_darmstadt",
+    schema_name: str = "traffic_darmstadt",
 ) -> pd.DataFrame:
     """
     Normalize both the original simple generator and the richer hotspot/network
@@ -493,7 +536,7 @@ def normalize_history(
     capacity_quantile: float,
     capacity_margin: float,
 ) -> pd.DataFrame:
-    if input_schema in {"verkehr_darmstadt", "verkehr_darmstadt_hotspot"}:
+    if input_schema in {"traffic_darmstadt", "traffic_darmstadt_hotspot"}:
         return normalize_german_schema(raw, capacity_quantile, capacity_margin, input_schema)
     if input_schema == "segment_history":
         return normalize_segment_history_schema(raw)
@@ -1296,6 +1339,28 @@ def make_map_segment_history(forecasts: pd.DataFrame) -> pd.DataFrame:
     return map_df[[c for c in ordered if c in map_df.columns]]
 
 
+def simulation_time_category_codes(timestamp: pd.Series | pd.DatetimeIndex) -> pd.Series:
+    """Return the numeric Tageszeit_Kategorie codes used by the simulator."""
+    converted = pd.to_datetime(timestamp)
+    if isinstance(converted, pd.Series):
+        ts = converted
+    else:
+        ts = pd.Series(converted, index=getattr(timestamp, "index", None))
+
+    hour = ts.dt.hour
+    weekend = ts.dt.dayofweek >= 5
+    code = pd.Series(4, index=ts.index, dtype="int64")
+    code[(hour >= 0) & (hour < 6)] = 1
+    code[(hour >= 6) & (hour < 10)] = 2
+    code[(hour >= 10) & (hour < 15)] = 3
+    code[(hour >= 15) & (hour < 24)] = 4
+
+    working = ~weekend
+    code[working & (hour >= 7) & (hour < 10)] = 5
+    code[working & (hour >= 15) & (hour < 18)] = 6
+    return code.astype(int)
+
+
 def make_input_schema_forecast(forecasts: pd.DataFrame, input_schema: str) -> pd.DataFrame:
     """
     Create a forecast table that resembles the input DB schema. For the uploaded
@@ -1309,122 +1374,137 @@ def make_input_schema_forecast(forecasts: pd.DataFrame, input_schema: str) -> pd
     frame = forecasts.copy()
     ts = pd.to_datetime(frame["Timestamp"])
 
-    if input_schema in {"verkehr_darmstadt", "verkehr_darmstadt_hotspot"}:
-        out = pd.DataFrame()
-        out["Timestamp"] = ts.dt.strftime("%Y-%m-%d %H:%M:%S")
-        out["Wochentag"] = ts.dt.dayofweek.astype(int)
-        if "Tageszeit_Kategorie" in frame.columns:
-            out["Tageszeit_Kategorie"] = frame["Tageszeit_Kategorie"].astype(str)
-        else:
-            out["Tageszeit_Kategorie"] = infer_time_category(ts, ts.dt.dayofweek >= 5).to_numpy()
+    def numeric_series(col: str, default=np.nan) -> pd.Series:
+        if col in frame.columns:
+            return pd.to_numeric(frame[col], errors="coerce")
+        return pd.Series(default, index=frame.index, dtype="float64")
 
-        for col in ["u", "v", "key"]:
-            if col in frame.columns:
-                numeric = pd.to_numeric(frame[col], errors="coerce")
-                out[col] = numeric.fillna(-1).astype(int)
-            else:
-                out[col] = -1
+    def object_series(col: str, default="unknown") -> pd.Series:
+        if col in frame.columns:
+            return frame[col]
+        return pd.Series(default, index=frame.index, dtype="object")
 
-        out["Anzahl_Autos"] = pd.to_numeric(frame["PredictedLoad"], errors="coerce").round().fillna(0).clip(lower=0).astype(int)
-        out["Durchschnittsgeschwindigkeit_kmh"] = pd.to_numeric(
-            frame.get("PredictedSpeedKmh", np.nan), errors="coerce"
-        ).round(2)
-        out["Stau_Level"] = pd.to_numeric(frame.get("PredictedStauLevel", np.nan), errors="coerce").round().fillna(1).astype(int)
+    out = pd.DataFrame(index=frame.index)
 
-        # Preserve useful rich/static columns when the input came from the new hotspot/network generator 
-        # Code that only expects the old columns can simply ignore these extras
-        for col in [
-            "Date",
-            "Time",
-            "Segment",
-            "Street",
-            "FromNode",
-            "ToNode",
-            "Strassenname",
-            "Highway",
-            "Length_Meter",
-            "Lanes",
-            "RoadImportance",
-            "BaseSpeed_kmh",
-            "StorageCapacity",
-            "FlowCapacity",
-            "PredictedCongestionPercent",
-            "PredictedCongested",
-            "CongestionProbability",
-            "IsNonWorkingDay",
-            "RushHourActive",
-            "RushHourFactor",
-            "ModelCreatedAt",
-        ]:
-            if col in frame.columns:
-                out[col] = frame[col]
+    time_category = simulation_time_category_codes(ts)
+    is_non_working_day = (ts.dt.dayofweek >= 5).astype(int)
+    predicted_load = numeric_series("PredictedLoad", 0.0).fillna(0.0).clip(lower=0.0)
+    load_int = predicted_load.round().astype(int)
 
-        ordered = [
-            "Timestamp",
-            "Wochentag",
-            "Tageszeit_Kategorie",
-            "u",
-            "v",
-            "key",
-            "Anzahl_Autos",
-            "Durchschnittsgeschwindigkeit_kmh",
-            "Stau_Level",
-            "Date",
-            "Time",
-            "Segment",
-            "Street",
-            "FromNode",
-            "ToNode",
-            "Strassenname",
-            "Highway",
-            "Length_Meter",
-            "Lanes",
-            "RoadImportance",
-            "BaseSpeed_kmh",
-            "StorageCapacity",
-            "FlowCapacity",
-            "PredictedCongestionPercent",
-            "PredictedCongested",
-            "CongestionProbability",
-            "IsNonWorkingDay",
-            "RushHourActive",
-            "RushHourFactor",
-            "ModelCreatedAt",
-        ]
-        return out[[c for c in ordered if c in out.columns]]
+    flow_capacity = numeric_series("FlowCapacity")
+    storage_capacity = numeric_series("StorageCapacity")
+    flow_capacity = flow_capacity.fillna(storage_capacity)
+    flow_capacity = flow_capacity.fillna(1.0).replace(0, 1.0)
 
-    # For canonical inputs, the map-compatible output is the closest equivalent
-    return make_map_segment_history(forecasts)
+    effective_capacity = numeric_series("EffectiveCapacity").fillna(flow_capacity)
+    effective_capacity = effective_capacity.mask(effective_capacity <= 0, flow_capacity)
+    capacity_ratio = predicted_load / effective_capacity.replace(0, np.nan)
+
+    pred_speed = numeric_series("PredictedSpeedKmh")
+    base_speed = numeric_series("BaseSpeed_kmh", 30.0).fillna(30.0)
+    speed = pred_speed.fillna(base_speed).clip(lower=0.0).round(1)
+
+    pred_stau = numeric_series("PredictedStauLevel")
+    if pred_stau.isna().any():
+        pred_stau = pred_stau.fillna(derive_stau_from_ratio(100.0 * capacity_ratio).astype(float))
+    stau_level = pred_stau.round().fillna(1).clip(lower=1, upper=4).astype(int)
+
+    out["Timestamp"] = pd.to_datetime(ts)
+    out["Date"] = ts.dt.date.astype(str)
+    out["Time"] = ts.dt.strftime("%H:%M:%S")
+    out["Minute"] = ((ts - ts.min()).dt.total_seconds() / 60.0).round().astype(int)
+    out["Wochentag"] = ts.dt.dayofweek.astype(int)
+    # In simuls_data_hotspot_network.py, Day is also the day-of-week value.
+    out["Day"] = out["Wochentag"]
+    out["Hour"] = ts.dt.hour.astype(int)
+    out["Tageszeit_Kategorie"] = time_category.to_numpy()
+    out["IsNonWorkingDay"] = is_non_working_day
+    out["RushHourActive"] = time_category.isin([5, 6]).astype(int).to_numpy()
+
+    out["Segment"] = object_series("Segment", "unknown").astype(str)
+    for col in ["u", "v", "key"]:
+        out[col] = numeric_series(col, -1).fillna(-1).astype(int)
+
+    if "FromNode" in frame.columns:
+        out["FromNode"] = numeric_series("FromNode").fillna(out["u"]).astype(int)
+    else:
+        out["FromNode"] = out["u"]
+    if "ToNode" in frame.columns:
+        out["ToNode"] = numeric_series("ToNode").fillna(out["v"]).astype(int)
+    else:
+        out["ToNode"] = out["v"]
+
+    if "Strassenname" in frame.columns:
+        out["Strassenname"] = object_series("Strassenname", "Unknown").fillna("Unknown").astype(str)
+    elif "Street" in frame.columns:
+        out["Strassenname"] = object_series("Street", "Unknown").fillna("Unknown").astype(str)
+    else:
+        out["Strassenname"] = "Unknown"
+
+    out["Highway"] = object_series("Highway", "unknown").fillna("unknown").astype(str)
+    out["Length_Meter"] = numeric_series("Length_Meter").round(2)
+    out["Lanes"] = numeric_series("Lanes", 1.0).fillna(1.0)
+    out["RoadImportance"] = numeric_series("RoadImportance", 1.0).fillna(1.0)
+    out["Anzahl_Autos"] = load_int
+    out["Load"] = load_int
+    out["BaseSpeed_kmh"] = base_speed.round(1)
+    out["Durchschnittsgeschwindigkeit_kmh"] = speed
+    out["SpeedKmh"] = speed
+    out["FlowCapacity"] = flow_capacity.round(1)
+    out["EffectiveCapacity"] = effective_capacity.round(1)
+    out["CapacityRatio"] = capacity_ratio.round(4)
+    out["CongestionPercent"] = np.round(np.clip(capacity_ratio, 0.0, 2.0) * 100.0, 1)
+    out["Stau_Level"] = stau_level
+    # Match the simulator semantics: Congestion is a binary flag, not a ratio.
+    out["Congestion"] = (stau_level >= 3).astype(int)
+
+    out["HotspotPressure"] = numeric_series("HotspotPressure", 0.0).fillna(0.0).round(2)
+    out["RoutePressure"] = numeric_series("RoutePressure", 0.0).fillna(0.0).round(2)
+    out["SpilloverPressure"] = numeric_series("SpilloverPressure", 0.0).fillna(0.0).round(2)
+    # Future incidents are not forecast by this model; keep neutral values.
+    out["IncidentActive"] = 0
+    out["IncidentCapacityFactor"] = 1.0
+    out["edge_idx"] = numeric_series("edge_idx", -1).fillna(-1).astype(int)
+
+    return out[SIMULATION_OUTPUT_COLS]
 
 
 def write_outputs(
     output_db: str | Path,
     forecasts: pd.DataFrame,
-    metrics: dict[str, float],
-    test_predictions: pd.DataFrame,
     input_schema: str,
-    forecasts_table: str = "traffic_forecasts",
-    metrics_table: str = "model_metrics",
-    test_table: str = "test_predictions",
-    input_compatible_table: Optional[str] = "verkehr_darmstadt_forecast",
-    map_table: Optional[str] = "segment_history",
+    output_table: str = "traffic_darmstadt",
+    write_chunk_size: int = 50_000,
 ) -> None:
     output_db = Path(output_db)
     output_db.parent.mkdir(parents=True, exist_ok=True)
-    metrics_df = pd.DataFrame([{"Metric": k, "Value": v} for k, v in metrics.items()])
+    output_table = output_table.strip() or "traffic_darmstadt"
+
+    simulation_schema_df = make_input_schema_forecast(forecasts, input_schema)
 
     with connect(output_db) as conn:
-        forecasts.to_sql(forecasts_table, conn, if_exists="replace", index=False)
-        metrics_df.to_sql(metrics_table, conn, if_exists="replace", index=False)
-        test_predictions.to_sql(test_table, conn, if_exists="replace", index=False)
+        if simulation_schema_df.empty:
+            simulation_schema_df.to_sql(output_table, conn, if_exists="replace", index=False)
+        else:
+            first = True
+            for start in range(0, len(simulation_schema_df), write_chunk_size):
+                end = start + write_chunk_size
+                chunk = simulation_schema_df.iloc[start:end]
+                chunk.to_sql(
+                    output_table,
+                    conn,
+                    if_exists="replace" if first else "append",
+                    index=False,
+                )
+                first = False
 
-        if input_compatible_table:
-            input_compatible = make_input_schema_forecast(forecasts, input_schema)
-            input_compatible.to_sql(input_compatible_table, conn, if_exists="replace", index=False)
-
-        if map_table:
-            map_history = make_map_segment_history(forecasts)
-            map_history.to_sql(map_table, conn, if_exists="replace", index=False)
+        # Same index pattern as simul_data.py
+        conn.execute(f'CREATE INDEX IF NOT EXISTS idx_{output_table}_time ON "{output_table}"(Timestamp)')
+        conn.execute(f'CREATE INDEX IF NOT EXISTS idx_{output_table}_segment ON "{output_table}"(Segment)')
+        conn.execute(
+            f'CREATE INDEX IF NOT EXISTS idx_{output_table}_datetime_segment '
+            f'ON "{output_table}"(Date, Time, Segment)'
+        )
 
 
 def save_models(model_dir: str | Path, models: TrainedModels, metrics: dict[str, float]) -> None:
@@ -1467,10 +1547,12 @@ def parse_str_list(text: Optional[str]) -> Optional[list[str]]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train an XGBoost traffic forecast model from a SQLite traffic DB.")
-    parser.add_argument("--db", default="verkehrsdaten_darmstadt_mitte_GUI.db", help="Input SQLite database path.")
+    parser.add_argument("--db", default="traffic_data_darmstadt_mitte.db", help="Input SQLite database path.")
     parser.add_argument("--table", default=None, help="History table name. Defaults to auto-detect.")
     parser.add_argument("--output-db", default="traffic_forecasts.db", help="SQLite DB to write forecast tables into.")
+    parser.add_argument("--output-table", default="traffic_darmstadt", help="Single output table name. Defaults to the simulator table name.")
     parser.add_argument("--model-dir", default="traffic_xgb_models", help="Directory for trained model files.")
+    parser.add_argument("--save-models", action="store_true", help="Optionally save trained model files. Disabled by default so only the DB is created.")
 
     parser.add_argument("--forecast-start", default=None, help='First desired forecast timestamp, e.g. "2026-05-01 01:00".')
     parser.add_argument("--until", default=None, help='Last desired forecast timestamp, e.g. "2026-05-02 00:00".')
@@ -1490,16 +1572,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rolling-windows", default=",".join(map(str, DEFAULT_ROLLING_WINDOWS)), help="Comma-separated rolling windows.")
     parser.add_argument("--segments", default=None, help="Optional comma-separated Segment IDs to forecast/output, e.g. '447856_12635609_0'.")
 
-    parser.add_argument(
-        "--input-compatible-table",
-        default="verkehr_darmstadt_forecast",
-        help="Output table in the same schema as the input DB. Use an empty string to skip.",
-    )
-    parser.add_argument(
-        "--map-table",
-        default="segment_history",
-        help="Name of the map-compatible output table. Use an empty string to skip.",
-    )
     parser.add_argument("--random-state", type=int, default=42)
     return parser.parse_args()
 
@@ -1521,9 +1593,9 @@ def main() -> None:
     print(f"Loaded {len(raw):,} rows from table '{table}' using schema '{input_schema}'.")
     print(f"Found {prepared['Segment'].nunique():,} segments and {prepared['Timestamp'].nunique():,} timestamps.")
     print(f"Inferred step size: {freq_minutes} minute(s). Using lags={lags}, rolling_windows={windows}.")
-    if input_schema in {"verkehr_darmstadt", "verkehr_darmstadt_hotspot"}:
+    if input_schema in {"traffic_darmstadt", "traffic_darmstadt_hotspot"}:
         print("Mapped Anzahl_Autos -> Load, Durchschnittsgeschwindigkeit_kmh -> SpeedKmh, Stau_Level -> StauLevel.")
-    if input_schema == "verkehr_darmstadt_hotspot":
+    if input_schema == "traffic_darmstadt_hotspot":
         print("Detected richer hotspot/network generator fields and preserved road attributes for training/output.")
 
     models, metrics, test_predictions = train_models(
@@ -1553,25 +1625,20 @@ def main() -> None:
         segments=parse_str_list(args.segments),
     )
 
-    map_table = args.map_table.strip() or None
-    input_compatible_table = args.input_compatible_table.strip() or None
     write_outputs(
         args.output_db,
         forecasts,
-        metrics,
-        test_predictions,
         input_schema=input_schema,
-        input_compatible_table=input_compatible_table,
-        map_table=map_table,
+        output_table=args.output_table,
     )
-    save_models(args.model_dir, models, metrics)
 
-    print(f"Wrote {len(forecasts):,} detailed forecast rows to {args.output_db} table 'traffic_forecasts'.")
-    if input_compatible_table:
-        print(f"Also wrote input-compatible table '{input_compatible_table}'.")
-    if map_table:
-        print(f"Also wrote map-compatible table '{map_table}' with predicted Load/Congestion values.")
-    print(f"Saved models and metadata in {args.model_dir}.")
+    if args.save_models:
+        save_models(args.model_dir, models, metrics)
+
+    print(f"Wrote {len(forecasts):,} forecast rows to {args.output_db} table '{args.output_table}'.")
+    print("The output database contains only the simulator-schema forecast table.")
+    if args.save_models:
+        print(f"Saved models and metadata in {args.model_dir}.")
 
 
 if __name__ == "__main__":

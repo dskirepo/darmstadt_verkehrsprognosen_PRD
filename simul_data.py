@@ -12,7 +12,9 @@ import osmnx as ox
 import pandas as pd
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 # Configuration
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
 class SimulationConfig:
@@ -48,12 +50,12 @@ class SimulationConfig:
     incident_capacity_factor_min: float = 0.45
     incident_capacity_factor_max: float = 0.75
 
-    # BPR-like speed model. Higher beta creates sharper speed drops near capacity
-    bpr_alpha: float = 0.55
+    # BPR(Bureau of Public Roads function)-like speed model, higher beta creates sharper speed drops near capacity
+    bpr_alpha: float = 0.55 # baseline sensitivity to growing traffic
     bpr_beta: float = 3.2
 
-    output_db: str = "verkehrsdaten_darmstadt_mitte.db"
-    output_table: str = "verkehr_darmstadt"
+    output_db: str = "traffic_data_darmstadt_mitte.db"
+    output_table: str = "traffic_darmstadt"
     write_chunk_size: int = 50_000
 
 
@@ -102,9 +104,35 @@ DEFAULT_HOTSPOTS = [
         strength=0.72,
         decay_m=520.0,
     ),
+    HotspotSpec(
+        name="Heidelbergstraße",
+        lat=49.866797,
+        lon=8.646543,
+        kind="officeentry_shopping",
+        strength=0.4,
+        decay_m=520.0,
+    ),
+    HotspotSpec(
+        name="Wilhelminenplatz",
+        lat=49.867621,
+        lon=8.652479,
+        kind="office_shopping",
+        strength=0.2,
+        decay_m=520.0,
+    ),
+    HotspotSpec(
+        name="Zinn-Ankauf",
+        lat=49.869311,  
+        lon=8.659113,
+        kind="office_shopping",
+        strength=0.16,
+        decay_m=520.0,
+    ),
 ]
 
+# ─────────────────────────────────────────────────────────────────────────────
 # Basic helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _first_if_list(value, default=None):
     if isinstance(value, list):
@@ -244,8 +272,9 @@ def route_time_factor(kind: str, timestamp: pd.Timestamp) -> float:
 
     return max(0.0, value)
 
-
+# ─────────────────────────────────────────────────────────────────────────────
 # Road parameters
+# ─────────────────────────────────────────────────────────────────────────────
 
 def road_parameters(edge_data: dict) -> Tuple[str, float, float, float, float]:
     """
@@ -314,8 +343,9 @@ def road_parameters(edge_data: dict) -> Tuple[str, float, float, float, float]:
     multiplier = importance_multiplier.get(highway, 0.75)
     return highway, multiplier, free_speed, capacity, lanes
 
-
+# ─────────────────────────────────────────────────────────────────────────────
 # Network preparation
+# ─────────────────────────────────────────────────────────────────────────────
 
 def nearest_node_for_latlon(G: nx.MultiDiGraph, lat: float, lon: float) -> int:
     return int(ox.distance.nearest_nodes(G, X=lon, Y=lat))
@@ -424,8 +454,9 @@ def build_edge_neighbours(G: nx.MultiDiGraph, edge_df: pd.DataFrame) -> List[Lis
         neighbours.append(cleaned)
     return neighbours
 
-
+# ─────────────────────────────────────────────────────────────────────────────
 # Hotspot and route pressure
+# ─────────────────────────────────────────────────────────────────────────────
 
 def build_hotspot_nodes(G: nx.MultiDiGraph, hotspot_specs: List[HotspotSpec]) -> List[Tuple[HotspotSpec, int]]:
     result = []
@@ -524,8 +555,9 @@ def build_route_weight_matrix(
 
     return weights
 
-
+# ─────────────────────────────────────────────────────────────────────────────
 # Incidents and simulation
+# ─────────────────────────────────────────────────────────────────────────────
 
 def generate_incident_capacity_factors(
     timestamps: pd.DatetimeIndex,
