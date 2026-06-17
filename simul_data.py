@@ -21,8 +21,8 @@ class SimulationConfig:
     place: str = "Darmstadt-Mitte, Darmstadt, Germany"
     network_type: str = "drive"
 
-    start: str = "2026-03-01 00:00"
-    end: str = "2026-06-09 06:00"
+    start: str = "2026-03-23 00:00"
+    end: str = "2026-06-23 09:00"
     freq: str = "h"
 
     random_seed: int = 42
