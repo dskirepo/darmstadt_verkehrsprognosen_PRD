@@ -1,0 +1,12 @@
+Holdout metrics:
+  load_mae: 5.2185
+  load_rmse: 7.6070
+  load_r2: 0.9953
+  speed_mae: 1.6039
+  speed_rmse: 1.9975
+  speed_r2: 0.9722
+  congestion_accuracy: 0.9869
+  congestion_f1: 0.8983
+  congestion_roc_auc: 0.9994
+  stau_level_accuracy: 0.9566
+  stau_level_f1_macro: 0.7537

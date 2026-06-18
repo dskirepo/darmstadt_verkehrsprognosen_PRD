@@ -1572,7 +1572,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--forecast-start", default=None, help='First desired forecast timestamp, e.g. "2026-05-01 01:00".')
     parser.add_argument("--until", default=None, help='Last desired forecast timestamp, e.g. "2026-05-02 00:00".')
-    parser.add_argument("--horizon-minutes", type=int, default =60 *24, help="Forecast horizon in minutes if --until is omitted.")
+    parser.add_argument("--horizon-minutes", type=int, default =60*8, help="Forecast horizon in minutes if --until is omitted.")
 
     parser.add_argument("--history-start", default=None, help="Optional lower bound for training history.")
     parser.add_argument("--history-end", default=None, help="Optional upper bound for training history.")
