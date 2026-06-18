@@ -293,8 +293,8 @@ now = datetime.now()
 # ]
 
 hours_window: list[pd.Timestamp] = [
-    pd.Timestamp(last_day) + pd.Timedelta(hours=(now.hour - d) % 24)
-    for d in range(4, -1, -1)   # -4 h, -3 h, -2 h, -1 h, 0 h  (5 frames)
+    last_day - pd.Timedelta(hours=d)
+    for d in range(4, -1, -1)   # last_ts-4h, -3h, -2h, -1h, 0h
 ]
 
 
