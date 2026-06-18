@@ -198,7 +198,8 @@ for val in edges["highway"].dropna():
 
 present_highway_types = sorted(_hw_types)
 
-last_day = (df["Timestamp"].max() - pd.Timedelta(days=1)).date() # last day in database is 09-06 at 0:00, so choose the second to last day for data
+#last_day = (df["Timestamp"].max() - pd.Timedelta(days=1)).date() # last day in database is 09-06 at 0:00, so choose the second to last day for data
+last_day =  df["Timestamp"].max().date()
 
 # centre the map
 bounds     = edges.total_bounds          # (minx, miny, maxx, maxy)
@@ -286,10 +287,16 @@ if "frame_idx" not in st.session_state:
 
 now = datetime.now()
 
-hours_window:list[pd.Timestamp] = [
-    pd.Timestamp(last_day) + pd.Timedelta(hours=(now.hour + d) % 24)
-    for d in range(-2, 3)      # -2 h, -1 h, 0 h, +1 h, +2 h (5 frames)
+# hours_window:list[pd.Timestamp] = [
+#     pd.Timestamp(last_day) + pd.Timedelta(hours=(now.hour + d) % 24)
+#     for d in range(-2, 3)      # -2 h, -1 h, 0 h, +1 h, +2 h (5 frames)
+# ]
+
+hours_window: list[pd.Timestamp] = [
+    pd.Timestamp(last_day) + pd.Timedelta(hours=(now.hour - d) % 24)
+    for d in range(4, -1, -1)   # -4 h, -3 h, -2 h, -1 h, 0 h  (5 frames)
 ]
+
 
 ts:pd.Timestamp = hours_window[st.session_state.frame_idx % len(hours_window)]
 
