@@ -87,7 +87,7 @@ st.markdown(
 
 st.markdown(
     "<h1 style='text-align: center;'>Verkehrsprognose</h1>"
-    "<h2 style='text-align: center;'>Prognose der nächsten 8? Stunden</h2>"
+    "<h2 style='text-align: center;'>Prognose der nächsten 8 Stunden</h2>"
     "<br><br>",
     unsafe_allow_html=True
 )
