@@ -4,6 +4,7 @@ import sqlite3
 import pandas as pd
 import pydeck as pdk
 from streamlit_theme import st_theme
+from info_overlay import render_info_overlay
 
 # ─────────────────────────────────────────────────────────────────────────────
 # adjust to light & dark mode
@@ -117,28 +118,6 @@ def load_edges() -> pd.DataFrame:
 
 df = load_traffic_data()
 edges = load_edges()
-
-# definitions for all relevant highway types
-HIGHWAY_DESCRIPTIONS = {
-    "motorway":       "Autobahn - höchste Kapazität, kreuzungsfrei",
-    "motorway_link":  "Autobahn-Auffahrt / -Abfahrt",
-    "trunk":          "Schnellstraße - ähnlich Autobahn, wenige Kreuzungen",
-    "trunk_link":     "Schnellstraßen-Auffahrt / -Abfahrt",
-    "primary":        "Hauptstraße - verbindet größere Städte",
-    "primary_link":   "Hauptstraßen-Abzweigung",
-    "secondary":      "Bundesstraße - verbindet Städte & Gemeinden",
-    "secondary_link": "Bundesstraßen-Abzweigung",
-    "tertiary":       "Kreisstraße - verbindet kleinere Ortschaften",
-    "tertiary_link":  "Kreisstraßen-Abzweigung",
-    "residential":    "Wohnstraße - innerörtliche Nebenstraße",
-    "service":        "Zufahrt - Parkplätze, Höfe, Einfahrten",
-    "unclassified":   "Sonstige - kleine Nebenstraße",
-    "living_street":  "Spielstraße - Schrittgeschwindigkeit, Fußgänger haben Vorrang",
-    "pedestrian":     "Fußgängerzone - eingeschränkter Kfz-Verkehr",
-    "track":          "Feldweg / Forststraße",
-    "busway":         "Busspur",
-    "road":           "Straße unbekannten Typs",
-}
 
 # OSMnx sometimes stores highway as a list - flatten to get all unique types
 _hw_types: set[str] = set()
@@ -393,7 +372,6 @@ with col_left:
     st.pydeck_chart(deck, width='stretch')
 
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # filtered data
 # ─────────────────────────────────────────────────────────────────────────────
@@ -444,44 +422,8 @@ st.dataframe(
     hide_index=True
 )
 
-###############################################################################################
-'---'
 
-legende, definitionen = st.columns(2)
+########################################################################
 
-# explain all street types
-with legende:
-    _rows = "".join(
-        f"<tr><td>{ht}</td><td>{HIGHWAY_DESCRIPTIONS.get(ht, 'Keine Beschreibung verfügbar')}</td></tr>"
-        for ht in present_highway_types
-    )
-    st.markdown(
-        f"""
-        <div class='strassentyp-legende'>
-        <b style='display:block; margin-bottom:4px; font-size:1rem;'>Straßentypen im Kartenausschnitt</b>
-        <table>{_rows}</table>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-# explain values on hover
-with definitionen:
-    st.markdown(
-    """
-    <div class='methodik-box'>
-    <b style='display:block; margin-bottom:4px; font-size:1rem;'>So werden die Werte berechnet</b>
-    <b>Fahrzeuganzahl</b><br>
-    Gibt an, wie viele Fahrzeuge sich im ausgewählten Zeitraum
-    auf einem Straßenabschnitt befinden. Der Wert berücksichtigt
-    Tageszeit, Straßentyp sowie den Einfluss umliegender
-    Verkehrsschwerpunkte wie Innenstadt oder Einkaufsbereiche.<br><br>
-    <b>Durchschnittsgeschwindigkeit</b><br>
-    Die mittlere Fahrgeschwindigkeit der Fahrzeuge auf einem
-    Abschnitt im gewählten Stundenzeitraum im Vergleich mit dem dort geltenden Tempolimit.
-    Je stärker die Geschwindigkeit abweicht, desto höher
-    ist das angezeigte Stau-Level.
-    </div>
-    """,
-    unsafe_allow_html=True,
-    )
+# explanations for street data from the map overlay
+render_info_overlay(present_highway_types)
