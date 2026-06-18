@@ -98,6 +98,12 @@ with col_a:
         "Ein Klick auf ein Segment zeigt Fahrzeuganzahl und Durchschnittsgeschwindigkeit an."
     )
     st.markdown("<br>", unsafe_allow_html=True)
+    col_a.page_link("pg3_forecast.py", label="**Verkehrsprognose**")
+    st.markdown(
+        "Zeigt die stündlich prognostizierten Verkehrsverhältnisse für die nächsten Stunden. "
+        "Das Modell berechnet auf Basis historischer Muster für jedes Straßensegment "
+        "Staulevel, Fahrzeuganzahl und Durchschnittsgeschwindigkeit."
+    )
     
 with col_b:
     col_b.page_link("pg2_live_data.py", label="**Live-Daten**")
@@ -105,24 +111,17 @@ with col_b:
         "Stellt die aktuellen Verkehrsdaten dar. Im Live-Modus durchläuft die Anzeige die verfügbaren Zeitschritte "
         "automatisch und die Karte aktualisiert sich fortlaufend."
     )
-    
-
-col_c, col_d = st.columns(2)
-
-with col_c:
-    col_c.page_link("pg3_forecast.py", label="**Verkehrsprognose**")
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_b.page_link("pg4_traffic_lights_manual.py", label="**Ampelschaltung (manuell)**")
     st.markdown(
-        "Zeigt die stündlich prognostizierten Verkehrsverhältnisse für die nächsten Stunden. "
-        "Das Modell berechnet auf Basis historischer Muster für jedes Straßensegment "
-        "Staulevel, Fahrzeuganzahl und Durchschnittsgeschwindigkeit."
-    )
-
-with col_d:
-    col_d.page_link("pg4_traffic_lights_manual.py", label="**Ampelschaltung**")
-    st.markdown(
-        "Interaktive Steuerung der Ampeln im Stadtgebiet. Einzelne Kreuzungen "
+        "Einzelne Kreuzungen "
         "lassen sich manuell schalten oder per Grüne-Welle-Funktion koordiniert freigeben. "
         "Der Auto-Zyklus simuliert den realistischen Phasenwechsel."
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_b.page_link("pg5_traffic_lights_AI.py", label="**Ampelschaltung (KI)**")
+    st.markdown(
+        "Automatisierte Ampelschaltung zur Verminderung von Stau und Verkehrshindernissen für die kommenden 8 Stunden."
     )
 
 
