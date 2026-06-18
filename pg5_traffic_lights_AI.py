@@ -191,12 +191,12 @@ def congestion_color(percent: float) -> list[int]:
         return [125, 125, 125, 130]
     p = float(percent)
     if p < 55:
-        return [0, 170, 80, 175]
+        return [  0, 204,  68, 235] # green
     if p < 85:
-        return [255, 205, 70, 185]
+        return [255, 204,   0, 235] # yellow
     if p < 105:
-        return [255, 130, 30, 205]
-    return [215, 30, 30, 230]
+        return [210,  20,  20, 235] # red
+    return [  0,   0,   0, 255] # black
 
 
 def load_change_color(delta_load: float) -> list[int]:
@@ -605,6 +605,8 @@ def apply_signal_intervention(
             corridor = {target}
 
         target_idx = segment_to_idx[target]
+        target_street = df.at[target_idx, "Street"]
+        target_name = target_street if target_street and target_street != "{Unbekannte Straße}" else f"Segment {target}"
         severity = max(0.0, float(df.at[target_idx, "ForecastCongestionPercent"] - threshold_percent) / max(1.0, threshold_percent))
         relief_fraction = min(max_relief_fraction, base_relief_fraction + 0.16 * severity)
 
@@ -635,7 +637,7 @@ def apply_signal_intervention(
             df.at[idx, "DeltaLoad"] -= relieved
             df.at[idx, "RelievedLoad"] += relieved
             df.at[idx, "GreenPriority"] = 1
-            msg = f"Grünpriorität wegen {target}"
+            msg = f"Grünpriorität wegen {target_name}, {target}"
             df.at[idx, "InterventionReason"] = (df.at[idx, "InterventionReason"] + "; " + msg).strip("; ")
             total_relieved += relieved
 
@@ -663,7 +665,7 @@ def apply_signal_intervention(
             df.at[idx, "DeltaLoad"] += added
             df.at[idx, "AddedNeighborBurden"] += added
             df.at[idx, "RedBurden"] = 1
-            msg = f"Rot-/Wartebelastung wegen Priorität {target}"
+            msg = f"Rot-/Wartebelastung wegen Priorität {target_name}, {target}"
             df.at[idx, "InterventionReason"] = (df.at[idx, "InterventionReason"] + "; " + msg).strip("; ")
 
     df["AdjustedCongestionPercent"] = 100.0 * df["AdjustedLoad"] / df["AdjustedCapacity"].replace(0, np.nan)
@@ -674,12 +676,12 @@ def apply_signal_intervention(
 
     def role(row) -> str:
         if int(row.get("GreenPriority", 0)) == 1 and int(row.get("RedBurden", 0)) == 1:
-            return "priority_and_burden"
+            return "Grünpriorität & Rotbelastung"
         if int(row.get("GreenPriority", 0)) == 1:
-            return "green_priority"
+            return "Grünpriorität"
         if int(row.get("RedBurden", 0)) == 1:
-            return "red_burden"
-        return "none"
+            return "Rotbelastung"
+        return "keine"
 
     df["InterventionRole"] = df.apply(role, axis=1)
     return df
@@ -755,14 +757,13 @@ def prepare_path_layers(result: pd.DataFrame) -> pd.DataFrame:
     merged["tooltip"] = merged.apply(
         lambda r: (
             f"<b>{r.get('display_street', 'Unknown')}</b><br/>"
-            f"Segment: {r.get('Segment', '')}<br/>"
             f"Prognose: {safe_float(r.get('ForecastLoad')):.0f} Fahrzeuge, "
             f"{safe_float(r.get('ForecastCongestionPercent')):.1f}%<br/>"
             f"Nach Intervention: {safe_float(r.get('AdjustedLoad')):.0f} Fahrzeuge, "
             f"{safe_float(r.get('AdjustedCongestionPercent')):.1f}%<br/>"
             f"Δ Last: {safe_float(r.get('DeltaLoad')):+.1f} "
             f"({r.get('load_change_label', 'unverändert')})<br/>"
-            f"Rolle: {r.get('InterventionRole', 'none')}<br/>"
+            f"Rolle: {r.get('InterventionRole', 'keine')}<br/>"
             f"{r.get('InterventionReason', '')}"
         ),
         axis=1,
@@ -783,6 +784,23 @@ def export_adjusted_result(db_path: str, result: pd.DataFrame, table_name: str =
     with sqlite3.connect(db_path) as conn:
         frame.to_sql(table_name, conn, if_exists="replace", index=False)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# forecast database
+# ─────────────────────────────────────────────────────────────────────────────
+
+db_path = DEFAULT_FORECAST_DB
+try:
+    forecast_df = load_traffic_data()
+except Exception as exc:
+    st.error(f"Prognose konnte nicht geladen werden: {exc}")
+    st.info(
+        "Die KI-Ampelsteuerung erwartet dieselbe Forecast-Datenbank wie die Prognose: "
+        f"`{DEFAULT_FORECAST_DB}` mit der Tabelle `{DEFAULT_FORECAST_TABLE}`."
+    )
+    forecast_df = pd.DataFrame()
+
+available_timestamps = sorted(pd.to_datetime(forecast_df["Timestamp"].unique()))
+unique_dates = sorted(set(ts.date() for ts in available_timestamps))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # session state
@@ -809,6 +827,23 @@ if "auto_cycle" not in st.session_state:
 if "use_forecast_control" not in st.session_state:
     st.session_state.use_forecast_control = True
 
+if "pg5_selected_dt" not in st.session_state or st.session_state.pg5_selected_dt not in available_timestamps:
+    st.session_state.pg5_selected_dt = available_timestamps[0]
+
+def set_active_date(new_date): # triggered when a date button is clicked.
+    first_of_day = next(t for t in available_timestamps if t.date() == new_date)
+    st.session_state.pg5_selected_dt = first_of_day
+
+def go_prev(): # triggered by the ◀ button.
+    idx = available_timestamps.index(st.session_state.pg5_selected_dt)
+    if idx > 0:
+        st.session_state.pg5_selected_dt = available_timestamps[idx - 1]
+
+def go_next(): # triggered by the ▶ button.
+    idx = available_timestamps.index(st.session_state.pg5_selected_dt)
+    if idx < len(available_timestamps) - 1:
+        st.session_state.pg5_selected_dt = available_timestamps[idx + 1]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SIDEBAR / CONTROL INPUTS
@@ -817,53 +852,70 @@ if "use_forecast_control" not in st.session_state:
 col_map, col_ctrl = st.columns([3.2, 1.25])
 
 with col_ctrl:
-    st.markdown("### Prognose")
-
-    db_path = DEFAULT_FORECAST_DB
-    try:
-        forecast_df = load_traffic_data()
-    except Exception as exc:
-        st.error(f"Prognose konnte nicht geladen werden: {exc}")
-        st.info(
-            "Die KI-Ampelsteuerung erwartet dieselbe Forecast-Datenbank wie die Prognose: "
-            f"`{DEFAULT_FORECAST_DB}` mit der Tabelle `{DEFAULT_FORECAST_TABLE}`."
-        )
-        forecast_df = pd.DataFrame()
-
     if not forecast_df.empty:
-        times = sorted(pd.to_datetime(forecast_df["Timestamp"].dropna().unique()))
-        time_labels = [pd.Timestamp(t).strftime("%Y-%m-%d %H:%M") for t in times]
-        time_index = st.slider(
-            "Prognosezeitpunkt",
-            min_value=0,
-            max_value=len(time_labels) - 1,
-            value=0,
-            format="%d",
-            help="Index des Vorhersagezeitpunkts. Der konkrete Zeitpunkt steht darunter.",
-        )
-        selected_ts = pd.Timestamp(times[time_index])
-        st.caption(f"Ausgewählt: {selected_ts:%Y-%m-%d %H:%M}")
+        if len(unique_dates) == 1:
+            st.markdown(
+                f"<h3 style='text-align:center; margin-bottom:0px;'>"
+                f"{unique_dates[0].strftime('%A, %d. %B %Y')}</h3>",
+                unsafe_allow_html=True,
+            )
+        else:
+            date_cols = st.columns(len(unique_dates))
+            for i, d in enumerate(unique_dates):
+                with date_cols[i]:
+                    # Check if this button's date matches the currently selected date
+                    is_active = (d == st.session_state.pg5_selected_dt.date())
+                    st.button(
+                        label=d.strftime("%a %d.%m."),
+                        key=f"pg2_date_btn_{i}",
+                        use_container_width=True,
+                        type="primary" if is_active else "secondary",
+                        on_click=set_active_date,
+                        args=(d,)  # Pass the target date to the callback
+                    )
+
+        ctrl_prev, ctrl_dt, ctrl_next = st.columns([1, 6, 1])
+    
+        with ctrl_prev:
+            st.write("")
+            st.button("◀", use_container_width=True, help="Vorherige Stunde", on_click=go_prev)
+
+        with ctrl_next:
+            st.write("")
+            st.button("▶", use_container_width=True, help="Nächste Stunde", on_click=go_next)
+
+        # select forecast time
+        selected_date   = st.session_state.pg5_selected_dt.date()
+        day_timestamps  = [t for t in available_timestamps if t.date() == selected_date]
+
+        if st.session_state.pg5_selected_dt not in day_timestamps:
+            st.session_state.pg5_selected_dt = day_timestamps[0]
+
+        with ctrl_dt:
+            selected_ts = st.selectbox(
+                "Uhrzeit",
+                key="pg5_selected_dt",   # session state IS the selected value
+                options=day_timestamps,  # only this day's timestamps
+                format_func=lambda ts: ts.strftime("%H:%M"),
+            )
     else:
         selected_ts = None
 
-    st.markdown("### Intervention")
-    st.session_state.use_forecast_control = st.toggle(
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.toggle(
         "Automatische Ampel-Intervention anzeigen",
-        value=st.session_state.use_forecast_control,
-        help="Wenn aktiv, überschreibt die Prognoselogik die angezeigten Ampelphasen visuell.",
+        key="use_forecast_control",
+        help="Wenn aktiv, überschreibt die Prognoselogik die angezeigten Ampelphasen visuell."
     )
 
+    st.markdown("<br>", unsafe_allow_html=True)
     map_mode = st.radio(
-        "Kartenmodus",
+        "**Kartenmodus**",
         options=[
             "Laständerung durch Intervention",
             "Staukarte nach Intervention",
         ],
         index=0,
-        help=(
-            "Laständerung: Grün = Last gesenkt, Rot = Last erhöht, Grau = unverändert. "
-            "Staukarte: klassische Auslastungs-/Staukarte nach der Intervention."
-        ),
     )
 
     if map_mode == "Laständerung durch Intervention":
@@ -886,10 +938,10 @@ with col_ctrl:
             <div style='font-size:0.82rem;line-height:1.7;color:#ddd;background:#1a1a2e;
                         padding:9px 12px;border-radius:8px;margin-bottom:8px;'>
             <b>Kartenlegende</b><br/>
-            <span style='color:#00aa50;font-size:1.2rem;'>●</span> geringe Auslastung<br/>
-            <span style='color:#ffcd46;font-size:1.2rem;'>●</span> mittlere Auslastung<br/>
-            <span style='color:#ff821e;font-size:1.2rem;'>●</span> hohe Auslastung<br/>
-            <span style='color:#d71e1e;font-size:1.2rem;'>●</span> überlastet / Stau<br/>
+            <span style='color:#00cc44; font-size:1.3rem; vertical-align:middle;'>●</span> geringe Auslastung<br/>
+            <span style='color:#ffcc00; font-size:1.3rem; vertical-align:middle;'>●</span> mittlere Auslastung<br/>
+            <span style='color:#d21414; font-size:1.3rem; vertical-align:middle;'>●</span> hohe Auslastung<br/>
+            <span style='color:#000000; font-size:1.3rem; vertical-align:middle; -webkit-text-stroke: 0.3px white;'>●</span> überlastet / Stau<br/>
             Ampelpunkte: grau = unverändert, grün/rot = durch Intervention verändert
             </div>
             """,
@@ -953,30 +1005,30 @@ with col_ctrl:
             st.markdown(traffic_light_html(cur_phase), unsafe_allow_html=True)
 
         with right_col:
-            if st.button("**Rot**", use_container_width=True, type="primary" if cur_phase == "red" else "secondary"):
+            if st.button("**Rot**", width='stretch', type="primary" if cur_phase == "red" else "secondary"):
                 st.session_state.light_states[sel_id] = "red"
                 st.rerun()
-            if st.button("**Gelb**", use_container_width=True, type="primary" if cur_phase == "yellow" else "secondary"):
+            if st.button("**Gelb**", width='stretch', type="primary" if cur_phase == "yellow" else "secondary"):
                 st.session_state.light_states[sel_id] = "yellow"
                 st.rerun()
-            if st.button("**Grün**", use_container_width=True, type="primary" if cur_phase == "green" else "secondary"):
+            if st.button("**Grün**", width='stretch', type="primary" if cur_phase == "green" else "secondary"):
                 st.session_state.light_states[sel_id] = "green"
                 st.rerun()
 
         bc1, bc2 = st.columns(2)
         with bc1:
-            if st.button("Alle Rot", use_container_width=True):
+            if st.button("Alle Rot", width='stretch'):
                 for k in st.session_state.light_states:
                     st.session_state.light_states[k] = "red"
                 st.rerun()
         with bc2:
-            if st.button("Alle Grün", use_container_width=True):
+            if st.button("Alle Grün", width='stretch'):
                 for k in st.session_state.light_states:
                     st.session_state.light_states[k] = "green"
                 st.rerun()
 
         auto_lbl = "⏹ Auto-Zyklus" if st.session_state.auto_cycle else "▶ Auto-Zyklus"
-        if st.button(auto_lbl, use_container_width=True):
+        if st.button(auto_lbl, width='stretch'):
             st.session_state.auto_cycle = not st.session_state.auto_cycle
             st.rerun()
 
@@ -1057,8 +1109,9 @@ with col_map:
                 "lat": float(row["lat"]),
                 "lon": float(row["lon"]),
                 "label": row["unique_label"],
-                "phase_label": dot_label,
+                "phase_label": f"Phase: {dot_label}",
                 "auto_note": auto_note,
+                "tooltip": "",
                 "color": dot_color,
                 "radius": (
                     17 if SHOW_MANUAL_TRAFFIC_LIGHT_CONTROLS and nid == st.session_state.selected_node
@@ -1086,6 +1139,10 @@ with col_map:
 
     if not path_data.empty:
         map_paths = path_data.copy()
+        # Ensure the path data has the same keys expected by the tooltip HTML
+        map_paths["label"] = ""
+        map_paths["phase_label"] = ""
+        map_paths["auto_note"] = ""
         if map_mode == "Laständerung durch Intervention":
             map_paths["map_color"] = map_paths["load_change_color"]
             map_paths["map_width"] = map_paths["load_change_width"]
@@ -1141,7 +1198,7 @@ with col_map:
             "html": (
                 "<div style='font-family:system-ui,sans-serif;font-size:13px;line-height:1.55;'>"
                 "{tooltip}"
-                "<b>{label}</b><br/>Phase: {phase_label}<br/>{auto_note}"
+                "<b>{label}</b><br/>{phase_label}<br/>{auto_note}"
                 "</div>"
             ),
             "style": {
@@ -1175,49 +1232,85 @@ else:
         total_relief = float(result["RelievedLoad"].sum())
         total_burden = float(result["AddedNeighborBurden"].sum())
 
-        m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Vorher über Schwelle", before_congested)
-        m2.metric("Nachher über Schwelle", after_congested, delta=after_congested - before_congested)
-        m3.metric("Verhindert", prevented)
+        m1, m2, m4, m5, m3 = st.columns(5)
+        m1.metric("Vorher über Stauchwelle", before_congested)
+        m2.metric("Nachher über Stauschwelle", after_congested, delta=after_congested - before_congested)
         m4.metric("Grünpriorisierte Segmente", green_count)
         m5.metric("Rot-belastete Nachbarn", burden_count)
-
-        st.caption(
-            f"Entlastete Last: {total_relief:.1f}; zusätzliche Nachbarbelastung: {total_burden:.1f}. "
-            "Die Werte sind synthetische Belastungseinheiten/Fahrzeuge aus der Forecast-Tabelle, keine reale Ampelberechnung."
+        m3.markdown(
+            f"""
+            <div style="border: 1px solid rgba(128, 128, 128, 0.4); padding: 10px; border-radius: 8px; font-size: 0.8rem; color: #888; width: 100%; margin-top: 10px; line-height: 1.4;">
+            <b>Entlastet:</b> {total_relief:.1f} Fahrzeuge<br>
+            <b>Nachbarbelastung:</b> {total_burden:.1f} Fahrzeuge<br><br>
+            Synthetische Werte aus Forecast, keine reale Ampelberechnung.
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-        col_a, col_b = st.columns([1, 1])
-        with col_a:
-            st.markdown("#### Stärkste Grünprioritäten")
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        with st.expander("Stärkste Grünprioritäten"):
             green_table = result[result["GreenPriority"].eq(1)].copy()
             green_table = green_table.sort_values("RelievedLoad", ascending=False).head(12)
             if green_table.empty:
                 st.write("Keine Grünpriorität notwendig.")
             else:
+                green_table = green_table[[
+                        "Street", "ForecastCongestionPercent", "AdjustedCongestionPercent",
+                        "RelievedLoad", "CongestionPrevented", "Segment",
+                    ]]
+                
+                green_table = green_table.sort_values(by="Street", ascending=True)
+                stau_bool_mapping = {
+                    0: "Nein | kein Stau vorhergesagt",
+                    1: "Ja",
+                }
+                green_table["CongestionPrevented"] = green_table["CongestionPrevented"].map(stau_bool_mapping)
+                green_table["RelievedLoad"] = green_table["RelievedLoad"].round()
+                green_table["ForecastCongestionPercent"] = green_table["ForecastCongestionPercent"].round(2)
+                green_table["AdjustedCongestionPercent"] = green_table["AdjustedCongestionPercent"].round(2)
+                
+                # rename colums
                 st.dataframe(
-                    green_table[[
-                        "Street", "Segment", "ForecastCongestionPercent", "AdjustedCongestionPercent",
-                        "RelievedLoad", "CongestionPrevented",
-                    ]],
-                    use_container_width=True,
+                    green_table.rename(columns={
+                        "Street": "Straße",
+                        "ForecastCongestionPercent": "Stau vor Eingriff (%)",
+                        "AdjustedCongestionPercent": "Stau nach Eingriff (%)",
+                        "RelievedLoad": "Anzahl entlastete Fz.",
+                        "CongestionPrevented": "Stau verhindert?",
+                    }),
                     hide_index=True,
+                    width="stretch"
                 )
 
-        with col_b:
-            st.markdown("#### Nachbarbelastung durch mehr Rotzeit")
+        with st.expander("Nachbarbelastung durch mehr Rotzeit"):
             red_table = result[result["RedBurden"].eq(1)].copy()
             red_table = red_table.sort_values("AddedNeighborBurden", ascending=False).head(12)
             if red_table.empty:
                 st.write("Keine Nachbarbelastung erzeugt.")
             else:
+                red_table = red_table[[
+                        "Street", "ForecastCongestionPercent", "AdjustedCongestionPercent",
+                        "AddedNeighborBurden", "InterventionReason", "Segment",
+                    ]]
+                
+                red_table = red_table.sort_values(by="Street", ascending=True)
+                red_table["AddedNeighborBurden"] = red_table["AddedNeighborBurden"].round()
+                red_table["ForecastCongestionPercent"] = red_table["ForecastCongestionPercent"].round(2)
+                red_table["AdjustedCongestionPercent"] = red_table["AdjustedCongestionPercent"].round(2)
+
+                # rename colums
                 st.dataframe(
-                    red_table[[
-                        "Street", "Segment", "ForecastCongestionPercent", "AdjustedCongestionPercent",
-                        "AddedNeighborBurden", "InterventionReason",
-                    ]],
-                    use_container_width=True,
+                    red_table.rename(columns={
+                        "Street": "Straße",
+                        "ForecastCongestionPercent": "Stau vor Eingriff (%)",
+                        "AdjustedCongestionPercent": "Stau nach Eingriff (%)",
+                        "AddedNeighborBurden": "Belastung d. Nachbarstraßen in Fz.",
+                        "InterventionReason": "Grund für d. Eingriff",
+                    }),
                     hide_index=True,
+                    width="stretch"
                 )
     except KeyError:
         st.caption(
@@ -1231,7 +1324,7 @@ else:
                     "ForecastCongestionPercent", "AdjustedCongestionPercent", "InterventionRole",
                     "InterventionReason",
                 ]].sort_values("AdjustedCongestionPercent", ascending=False),
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
             )
 
