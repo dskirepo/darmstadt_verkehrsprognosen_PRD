@@ -257,6 +257,7 @@ with col_right:
             candidate = pd.Timestamp(st.session_state.pg1_selected_dt) - pd.Timedelta(hours=1)
             if candidate.date() >= min_date:
                 st.session_state.pg1_selected_dt = candidate
+                st.session_state.pg1_dt_widget = candidate  # keep widget in sync
     
     # 'next' button
     with ctrl_next:
@@ -265,16 +266,20 @@ with col_right:
             candidate = pd.Timestamp(st.session_state.pg1_selected_dt) + pd.Timedelta(hours=1)
             if candidate.date() <= max_date:
                 st.session_state.pg1_selected_dt = candidate
+                st.session_state.pg1_dt_widget = candidate  # keep widget in sync
 
     # datetime input
     with ctrl_dt:
-        st.datetime_input(
+        selected = st.datetime_input(
             "Datum & Uhrzeit",
             value=st.session_state.pg1_selected_dt,
             min_value=min_date,
             max_value=max_date,
             step=pd.Timedelta(minutes=60),
+            key="pg1_dt_widget",
         )
+        # write the widget's value back so the map always reflects it
+        st.session_state.pg1_selected_dt = pd.Timestamp(selected)
     
     # legend of traffic levels
     st.markdown("<br>", unsafe_allow_html=True)
