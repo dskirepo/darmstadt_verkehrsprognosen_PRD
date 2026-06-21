@@ -17,7 +17,7 @@ import pandas as pd
 # ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
-class SimulationConfig:
+class SimulationConfig: 
     place: str = "Darmstadt-Mitte, Darmstadt, Germany"
     network_type: str = "drive"
 
@@ -79,6 +79,8 @@ class RouteSpec:
 
 
 # stable high-demand areas whose influence decays through the road graph
+# these are defined manually. The segment closest to the specified coordinates will receive additional 
+# demand based on the kind and strength, as well as connected segments with a decay.
 DEFAULT_HOTSPOTS = [
     HotspotSpec(
         name="Luisenplatz_City_Center",
@@ -135,19 +137,20 @@ DEFAULT_HOTSPOTS = [
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _first_if_list(value, default=None):
+    """Returns first value of list if input is a list. Otherwise returns the input value."""
     if isinstance(value, list):
         return value[0] if value else default
     return default if value is None else value
 
 
 def _parse_numeric(value, default: float) -> float:
-    """Parse values like 50, '50', '50 km/h', ['30', '50'] robustly."""
+    """Parse values like 50, '50', '50 km/h', ['30', '50']."""
     value = _first_if_list(value, default)
     if value is None:
         return default
     if isinstance(value, (int, float)) and not pd.isna(value):
         return float(value)
-    match = re.search(r"\d+(?:\.\d+)?", str(value))
+    match = re.search(r"\d+(?:\.\d+)?", str(value)) #regex to search for numbers in a string like "[10]"
     return float(match.group(0)) if match else default
 
 
@@ -185,6 +188,7 @@ def get_time_category(hour: int, day_of_week: int) -> int:
 
 
 def gaussian_hour(hour_float: float, center: float, width: float) -> float:
+    " Generates demand curves with normal distribution."
     return math.exp(-((hour_float - center) ** 2) / (2.0 * width**2))
 
 
@@ -244,7 +248,7 @@ def hotspot_time_factor(kind: str, timestamp: pd.Timestamp) -> float:
 def route_time_factor(kind: str, timestamp: pd.Timestamp) -> float:
     """Profiles for synthetic origin-destination corridor pressure."""
     hour = timestamp.hour + timestamp.minute / 60.0
-    weekend = timestamp.dayofweek >= 5
+    weekend = timestamp.dayofweek >= 5 #0-indexed. So the days go from 0 to 6
 
     morning = gaussian_hour(hour, 8.0, 1.1)
     midday = gaussian_hour(hour, 12.5, 2.3)
@@ -348,10 +352,13 @@ def road_parameters(edge_data: dict) -> Tuple[str, float, float, float, float]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def nearest_node_for_latlon(G: nx.MultiDiGraph, lat: float, lon: float) -> int:
+    "Finds the nearest segment in the map based on longitude and latidute distance."
     return int(ox.distance.nearest_nodes(G, X=lon, Y=lat))
 
 def choose_boundary_nodes(G: nx.MultiDiGraph) -> Dict[str, int]:
-    """Pick rough north/south/east/west entry nodes from graph coordinates."""
+    """Pick rough north/south/east/west entry nodes from graph coordinates.
+    Basically tries to determine which nodes are at the edge of the simulated 
+    map and then sets them to be boundary nodes. One node is chosen for each cardinal direction, so 4 in total."""
     nodes = list(G.nodes(data=True))
     xs = np.array([float(d["x"]) for _, d in nodes])
     ys = np.array([float(d["y"]) for _, d in nodes])
@@ -370,7 +377,8 @@ def choose_boundary_nodes(G: nx.MultiDiGraph) -> Dict[str, int]:
     south_candidates = [(n, d) for n, d in nodes if float(d["y"]) <= south_cut]
     east_candidates = [(n, d) for n, d in nodes if float(d["x"]) >= east_cut]
     west_candidates = [(n, d) for n, d in nodes if float(d["x"]) <= west_cut]
-
+    #return the node most away from the centre of x or y from the candidate list. 
+    # If the candidates were not separated, the code would not differentiate norht/south, east/west.
     return {
         "north": best(north_candidates, lambda d: abs(float(d["x"]) - median_x)),
         "south": best(south_candidates, lambda d: abs(float(d["x"]) - median_x)),
@@ -381,7 +389,9 @@ def choose_boundary_nodes(G: nx.MultiDiGraph) -> Dict[str, int]:
 
 def build_edge_table(G: nx.MultiDiGraph) -> pd.DataFrame:
     records = []
+    
     for idx, (u, v, key, data) in enumerate(G.edges(keys=True, data=True)):
+        #gives parameters to given roadtypes
         highway, multiplier, free_speed, capacity, lanes = road_parameters(data)
         street_name = _first_if_list(data.get("name"), "Unknown")
         length_m = float(data.get("length", 50.0))
@@ -408,6 +418,7 @@ def build_edge_table(G: nx.MultiDiGraph) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 def edge_index_lookup(G: nx.MultiDiGraph) -> Dict[Tuple[int, int, int], int]:
+    "Gives every edge a number, referred to as idx."
     lookup = {}
     for idx, (u, v, key) in enumerate(G.edges(keys=True)):
         lookup[(int(u), int(v), int(key))] = idx
@@ -419,6 +430,7 @@ def shortest_edge_index_for_uv(
     u: int,
     v: int,
 ) -> Optional[int]:
+    """Finds the key of the edge with the shortest amount of length between the nodes u and v."""
     edge_bundle = G.get_edge_data(u, v)
     if not edge_bundle:
         return None
@@ -430,6 +442,8 @@ def directed_edge_indices_for_node_path(
     lookup: Dict[Tuple[int, int, int], int],
     node_path: List[int],
 ) -> List[int]:
+    """Converts a node path, as in a path from node a to node d via nodes b and c, into an edge path, 
+    thus describing the same path via the edges between those nodes."""
     edge_indices = []
     for a, b in zip(node_path[:-1], node_path[1:]):
         edge_idx = shortest_edge_index_for_uv(G, lookup, int(a), int(b))
@@ -459,6 +473,7 @@ def build_edge_neighbours(G: nx.MultiDiGraph, edge_df: pd.DataFrame) -> List[Lis
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_hotspot_nodes(G: nx.MultiDiGraph, hotspot_specs: List[HotspotSpec]) -> List[Tuple[HotspotSpec, int]]:
+    """Assigns hotspots to the nearest node. Hotspots and nodes carry with them coordinates."""
     result = []
     for spec in hotspot_specs:
         node = nearest_node_for_latlon(G, spec.lat, spec.lon)
@@ -567,7 +582,7 @@ def generate_incident_capacity_factors(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Return capacity factors and event flags.
-
+    These are meant to simulate things like accidents or roadworks etc.
     factor = 1.0 means no incident.
     factor < 1.0 means temporary capacity reduction.
     """
@@ -587,13 +602,13 @@ def generate_incident_capacity_factors(
         if rng.random() > cfg.incident_probability_per_day:
             continue
 
-        # Usually one incident, sometimes two
+        # Usually one incident, sometimes two; that does not mean that there is always an incident, but rather that IF a day has one incident, it may get a second one.
         num_incidents = 1 + int(rng.random() < 0.18)
         day_indices = ts_series.loc[(ts_series.index >= day) & (ts_series.index < day + timedelta(days=1))].to_numpy()
         if len(day_indices) == 0:
             continue
 
-        for _ in range(num_incidents):
+        for _ in range(num_incidents): #apply incident to edge and give it a duration.
             edge_idx = int(rng.choice(edge_df["edge_idx"].to_numpy(), p=prob))
             start_idx = int(rng.choice(day_indices))
             duration = int(rng.integers(cfg.incident_duration_min_hours, cfg.incident_duration_max_hours + 1))
@@ -614,6 +629,7 @@ def stau_level_from_speed_ratio(speed_ratio: np.ndarray) -> np.ndarray:
 
 
 def simulate(cfg: SimulationConfig) -> pd.DataFrame:
+    """Simulates traffic based on config and all previously given sub-functions"""
     rng = np.random.default_rng(cfg.random_seed)
 
     print("Lade Straßennetz")
@@ -817,6 +833,7 @@ def export_to_sqlite(df: pd.DataFrame, cfg: SimulationConfig) -> None:
 
 
 def main() -> None:
+    """loads simulate with the provided config, then writes the result in a database."""
     cfg = SimulationConfig()
     df = simulate(cfg)
     export_to_sqlite(df, cfg)

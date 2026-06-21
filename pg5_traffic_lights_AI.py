@@ -126,7 +126,7 @@ FORECAST_REQUIRED_COLUMNS = [
     "CongestionPercent",
 ]
 
-# Final-version intervention parameters
+# Intervention parameters
 INTERVENTION_THRESHOLD_PERCENT = 100.0
 INTERVENTION_MAX_TARGETS = 8
 INTERVENTION_MAX_RELIEF_FRACTION = 0.28
@@ -135,7 +135,7 @@ INTERVENTION_NEIGHBOR_BURDEN_FACTOR = 0.85
 INTERVENTION_CORRIDOR_DEPTH = 1
 INTERVENTION_PROTECT_NEIGHBORS = True
 
-# Keep old manual/demo controls disabled in the final page.
+# Old manual/demo controls disabled in the final page.
 SHOW_MANUAL_TRAFFIC_LIGHT_CONTROLS = False
 SHOW_DEBUG_TABLES_AND_EXPORT = False
 
@@ -145,7 +145,9 @@ SHOW_DEBUG_TABLES_AND_EXPORT = False
 # ─────────────────────────────────────────────────────────────────────────────
 
 def normalize_osm_id(value) -> str:
-    """Create stable string IDs for OSM u/v/key values loaded from SQLite."""
+    """Create string IDs for OSM u/v/key values loaded from SQLite. 
+    u/v/key refers to connected nodes. 
+    As in, from node u to node v with a key to differentiate twice or more connected nodes."""
     if pd.isna(value):
         return "unknown"
     try:
@@ -161,6 +163,7 @@ def normalize_osm_id(value) -> str:
 
 
 def make_segment_id(u, v, key) -> str:
+    """Turns the u/v/key pairing into an id. Uniqueness is guaranteed due to the key."""
     return f"{normalize_osm_id(u)}_{normalize_osm_id(v)}_{normalize_osm_id(key)}"
 
 
@@ -219,6 +222,7 @@ def load_change_color(delta_load: float) -> list[int]:
 
 
 def load_change_label(delta_load: float) -> str:
+    """Loads the label for a segment based on the change of congestion after intervention."""
     try:
         d = float(delta_load)
     except Exception:
@@ -369,7 +373,7 @@ def validate_forecast_schema(raw: pd.DataFrame) -> None:
 
 @st.cache_data(show_spinner="Prognose wird aus SQLite geladen …")
 def load_traffic_data() -> pd.DataFrame:
-    """Read forecasts exactly like pg2: traffic_forecasts.db -> traffic_darmstadt."""
+    """Read forecasts with a schema exactly like pg2: traffic_forecasts.db -> traffic_darmstadt."""
     conn = sqlite3.connect(DEFAULT_FORECAST_DB)
     try:
         raw = pd.read_sql_query(f'SELECT * FROM {DEFAULT_FORECAST_TABLE}', conn)
@@ -549,15 +553,10 @@ def apply_signal_intervention(
     protect_already_congested_neighbors: bool = True,
 ) -> pd.DataFrame:
     """
-    A deliberately simple, explainable control heuristic.
-
     For each predicted-congested target segment:
     - mark the target/corridor as green-priority
     - reduce its adjusted load to represent more green time
     - distribute a red-light burden to directly connected neighboring segments
-
-    This is not a real traffic-engineering optimizer. It is a visual/plausible
-    proof-of-concept that creates data a later optimizer could replace.
     """
     df = current.copy().reset_index(drop=True)
     if df.empty:
@@ -947,7 +946,7 @@ with col_ctrl:
             """,
             unsafe_allow_html=True,
         )
-
+    #The rest is mostly gui in nature, with most being not applied due to these booleans being false. Some were debugging tools.
     threshold_percent = INTERVENTION_THRESHOLD_PERCENT
     max_targets = INTERVENTION_MAX_TARGETS
     max_relief_fraction = INTERVENTION_MAX_RELIEF_FRACTION
@@ -1233,7 +1232,7 @@ else:
         total_burden = float(result["AddedNeighborBurden"].sum())
 
         m1, m2, m4, m5, m3 = st.columns(5)
-        m1.metric("Vorher über Stauchwelle", before_congested)
+        m1.metric("Vorher über Stauschwelle", before_congested)
         m2.metric("Nachher über Stauschwelle", after_congested, delta=after_congested - before_congested)
         m4.metric("Grünpriorisierte Segmente", green_count)
         m5.metric("Rot-belastete Nachbarn", burden_count)

@@ -107,7 +107,7 @@ def load_traffic_data() -> pd.DataFrame:
     return df
 
 @st.cache_resource
-def load_graph(): # get street data
+def load_graph(): # get street data, changing these parameters will change, which streets will be shown.
     return ox.graph_from_place(
         "Darmstadt-Mitte, Darmstadt, Germany", network_type="drive"
     )
