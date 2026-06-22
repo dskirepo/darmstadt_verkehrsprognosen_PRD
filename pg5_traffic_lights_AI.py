@@ -128,7 +128,7 @@ FORECAST_REQUIRED_COLUMNS = [
 
 # Intervention parameters
 INTERVENTION_THRESHOLD_PERCENT = 100.0
-INTERVENTION_MAX_TARGETS = 8
+INTERVENTION_MAX_TARGETS = 32
 INTERVENTION_MAX_RELIEF_FRACTION = 0.28
 INTERVENTION_BASE_RELIEF_FRACTION = 0.10
 INTERVENTION_NEIGHBOR_BURDEN_FACTOR = 0.85
@@ -193,11 +193,11 @@ def congestion_color(percent: float) -> list[int]:
     if pd.isna(percent):
         return [125, 125, 125, 130]
     p = float(percent)
-    if p < 55:
-        return [  0, 204,  68, 235] # green
     if p < 85:
+        return [  0, 204,  68, 235] # green
+    if p < 120:
         return [255, 204,   0, 235] # yellow
-    if p < 105:
+    if p < 170:
         return [210,  20,  20, 235] # red
     return [  0,   0,   0, 255] # black
 
@@ -744,13 +744,13 @@ def prepare_path_layers(result: pd.DataFrame) -> pd.DataFrame:
     # Map mode 2: congestion after intervention
     merged["congestion_map_color"] = merged["AdjustedCongestionPercent"].map(congestion_color)
     merged["congestion_map_width"] = np.select(
-        [
-            merged["AdjustedCongestionPercent"].ge(105),
-            merged["AdjustedCongestionPercent"].ge(85),
-            merged["AdjustedCongestionPercent"].ge(55),
-        ],
-        [8.5, 6.5, 5.0],
-        default=3.5,
+    [
+        merged["AdjustedCongestionPercent"].ge(173.0),
+        merged["AdjustedCongestionPercent"].ge(121.0),
+        merged["AdjustedCongestionPercent"].ge(85.5),
+    ],
+    [10, 8, 6],
+    default=5,
     )
 
     merged["tooltip"] = merged.apply(
